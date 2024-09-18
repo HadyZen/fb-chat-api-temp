@@ -1,5 +1,5 @@
 "use strict";
-
+const { logo } = require("../hady-zen/log.js");
 const utils = require("./utils");
 const log = require("npmlog");
 
@@ -85,16 +85,16 @@ function buildAPI(globalOptions, html, jar) {
 	}, {});
 
 	if (maybeCookie.length === 0) {
-		throw { error: "Error retrieving userID. This can be caused by a lot of things, including getting blocked by Facebook for logging in from an unknown location. Try logging in with a browser to verify." };
+		console.log(logo.akun + 'kesalahan saat mengambil ID pengguna. hal ini dapat disebabkan oleh banyak hal, termasuk diblokir oleh Facebook karena masuk dari lokasi yang tidak dikenal. coba masuk dengan browser untuk memverifikasi.');
 	}
 
 	if (html.indexOf("/checkpoint/block/?next") > -1) {
-		log.warn("login", "Checkpoint detected. Please log in with a browser to verify.");
-	}
+		console.log(logo.akun + 'checkpoint detek. harap periksa akun kamu terlebih dahulu.');
+}
 
 	const userID = maybeCookie[0].cookieString().split("=")[1].toString();
 	const i_userID = objCookie.i_user || null;
-	log.info("login", `Logged in as ${userID}`);
+	console.log(logo.akun + `masuk ke akun dengan ID: ${userID}`);
 
 	try {
 		clearInterval(checkVerified);
@@ -113,30 +113,29 @@ function buildAPI(globalOptions, html, jar) {
 		irisSeqID = oldFBMQTTMatch[1];
 		mqttEndpoint = oldFBMQTTMatch[2];
 		region = new URL(mqttEndpoint).searchParams.get("region").toUpperCase();
-		log.info("login", `Got this account's message region: ${region}`);
+		console.log(logo.akun + `mendapatkan wilayah pesan akun ini: ${region}`);
 	} else {
 		const newFBMQTTMatch = html.match(/{"app_id":"219994525426954","endpoint":"(.+?)","iris_seq_id":"(.+?)"}/);
 		if (newFBMQTTMatch) {
 			irisSeqID = newFBMQTTMatch[2];
 			mqttEndpoint = newFBMQTTMatch[1].replace(/\\\//g, "/");
 			region = new URL(mqttEndpoint).searchParams.get("region").toUpperCase();
-			log.info("login", `Got this account's message region: ${region}`);
+	  console.log(logo.akun + `mendapatkan wilayah pesan akun ini: ${region}`);
 		} else {
 			const legacyFBMQTTMatch = html.match(/(\["MqttWebConfig",\[\],{fbid:")(.+?)(",appID:219994525426954,endpoint:")(.+?)(",pollingEndpoint:")(.+?)(3790])/);
 			if (legacyFBMQTTMatch) {
 				mqttEndpoint = legacyFBMQTTMatch[4];
 				region = new URL(mqttEndpoint).searchParams.get("region").toUpperCase();
-				log.warn("login", `Cannot get sequence ID with new RegExp. Fallback to old RegExp (without seqID)...`);
-				log.info("login", `Got this account's message region: ${region}`);
-				log.info("login", `[Unused] Polling endpoint: ${legacyFBMQTTMatch[6]}`);
+				console.log(logo.error + `tidak bisa mendapatkan ID urutan dengan regexp baru. kembali ke regexp lama.`);
+				console.log(logo.akun + `mendapat wilayah pesan akun ini: ${region}`);
+				console.log(logo.info + `[tidak digunakan] titik akhir polling: ${legacyFBMQTTMatch[6]}`);
 			} else {
-				log.warn("login", "Cannot get MQTT region & sequence ID.");
+				console.log(logo.error + "tidak dapat mendapatkan wilayah mqtt.");
 				noMqttData = html;
 			}
 		}
 	}
 
-	// All data available to api functions
 	const ctx = {
 		userID: userID,
 		i_userID: i_userID,
@@ -158,7 +157,6 @@ function buildAPI(globalOptions, html, jar) {
 		setOptions: setOptions.bind(null, globalOptions),
 		getAppState: function getAppState() {
 			const appState = utils.getAppState(jar);
-			// filter duplicate
 			return appState.filter((item, index, self) => self.findIndex((t) => { return t.key === item.key }) === index);
 		}
 	};
@@ -225,27 +223,20 @@ function buildAPI(globalOptions, html, jar) {
 
 	const defaultFuncs = utils.makeDefaults(html, i_userID || userID, ctx);
 
-	// Load all api functions in a loop
 	apiFuncNames.map(function (v) {
 		api[v] = require('./src/' + v)(defaultFuncs, api, ctx);
 	});
 
-	//Removing original `listen` that uses pull.
-	//Map it to listenMqtt instead for backward compatibly.
 	api.listen = api.listenMqtt;
 
 	return [ctx, defaultFuncs, api];
 }
 
-// Helps the login
 function loginHelper(appState, email, password, globalOptions, callback, prCallback) {
 	let mainPromise = null;
 	const jar = utils.getJar();
 
-	// If we're given an appState we loop through it and save each cookie
-	// back into the jar.
 	if (appState) {
-		// check and convert cookie to appState
 		if (utils.getType(appState) === 'Array' && appState.some(c => c.name)) {
 			appState = appState.map(c => {
 				c.key = c.name;
@@ -274,16 +265,15 @@ function loginHelper(appState, email, password, globalOptions, callback, prCallb
 			jar.setCookie(str, "http://" + c.domain);
 		});
 
-		// Load the main page.
 		mainPromise = utils
 			.get('https://www.facebook.com/', jar, null, globalOptions, { noRef: true })
 			.then(utils.saveCookies(jar));
 	} else {
 		if (email) {
-			throw { error: "Currently, the login method by email and password is no longer supported, please use the login method by appState" };
+			console.log(logo.akun + "saat ini, metode login melalui email dan kata sandi tidak lagi didukung, silakan gunakan metode login oleh appstate.");
 		}
 		else {
-			throw { error: "No appState given." };
+			console.log(logo.akun + "tidak ada appstate yang diberikan.");
 		}
 	}
 
@@ -293,7 +283,6 @@ function loginHelper(appState, email, password, globalOptions, callback, prCallb
 
 	mainPromise = mainPromise
 		.then(function (res) {
-			// Hacky check for the redirection that happens on some ISPs, which doesn't return statusCode 3xx
 			const reg = /<meta http-equiv="refresh" content="0;url=([^"]+)[^>]+>/;
 			const redirect = reg.exec(res.body);
 			if (redirect && redirect[1]) {
@@ -312,7 +301,6 @@ function loginHelper(appState, email, password, globalOptions, callback, prCallb
 			return res;
 		});
 
-	// given a pageID we log in as a page
 	if (globalOptions.pageID) {
 		mainPromise = mainPromise
 			.then(function () {
@@ -328,14 +316,12 @@ function loginHelper(appState, email, password, globalOptions, callback, prCallb
 			});
 	}
 
-	// At the end we call the callback or catch an exception
 	mainPromise
 		.then(function () {
-			log.info("login", 'Done logging in.');
 			return callback(null, api);
 		})
 		.catch(function (e) {
-			log.error("login", e.error || e);
+			console.log(logo.error + e.error || e);
 			callback(e);
 		});
 }
